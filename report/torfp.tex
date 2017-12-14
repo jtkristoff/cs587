@@ -1,0 +1,530 @@
+\documentclass[sigconf]{acmart}
+\bibliographystyle{ACM-Reference-Format}
+
+\begin{document}
+
+\title{Tor Fingerprinting Attacks}
+\author{John Kristoff}
+\email{jtk@depaul.edu}
+
+\begin{abstract}
+
+Tor, the anonymity service, is in a constant game of leap frog between
+Tor users and would be censors.  Tor helps not only protect
+communications through encryption from would be eavesdroppers, but helps
+limit the identification of the ends of the communications, providing
+more than just secrecy, but also anonymity.  Censors, unless they wish
+to completely dismantle all communications must be able to detect and
+limit access to certain information.  Some censors not only wish to
+limit the flow of prohibited communication, but may seek to identify and
+possibly punish those who would subvert their control.  Tor, it is no
+secret, is no friend to would-be censors and to those who would prefer
+to identify the users trying to circumvent their controls.  Censors seek
+to attack the Tor system by identifying the components and its users.
+Affecting the availability of the Tor system begins by fingerprinting
+its components parts, the relay nodes, network traffic, and end users.
+This paper examines the available literature on Tor system
+fingerprinting and contributes some measurement-based perspective as the
+system is commonly deployed and used.
+
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+Tor is an overlay network for the Internet that aims to provide
+anonymity for users and services.\cite{dingledine_tor:_2004}  Using a
+technology known as \emph{onion routing} that grew out of research
+sponsored in part by the United States Office of Naval Research and
+DARPA, Tor has become one of the best known and most widely used
+anonymity services on the the Internet today.  The public Tor network
+consists of approximately 6,600 relay nodes, 100 Gb/s of relayed
+traffic, and 3 million connected clients.\footnote{Tor relay node
+statistics from data provided by \url{https:/torstatus.blutmagie.de/}
+and usage statistics as displayed at
+\url{https://metrics.torproject.org/}, both as listed in December 2017.}
+
+Access to the Tor network is relatively straightforward.  Using free and
+widely available software, Tor software is available for an array of
+operating systems and environments.  In order to participate in the Tor
+network a well known list of systems must be published so that relays
+and users alike can learn how to bootstrap into the system and build
+circuits through a reasonable set of relays out of a larger available
+pool.  Since this priming list of relay nodes must be made widely
+available and published widely, identifying these relay nodes is very
+straightforward.  Likewise, identifying users of the Tor system would
+simply be a matter of being able to observe traffic between a target
+user and any of the Tor relay nodes, whether or not the communications
+could be deciphered.
+
+Periodically obtaining a fresh copy of the public list of Tor relay
+nodes would seem to be sufficient to launching a fingerprint-based
+attack, making more sophisticated approaches of identifying components
+of the Tor system unnecessary.  However, there are at least four
+situations where this bootstrapping list as the primary means of Tor
+fingerprinting is insufficient.  First is in the case where an attacker
+does not have access to inspect traffic of a target system, either a
+relay node or end user.  Second, is when some a Tor relay node is
+co-resident with other, possibly unrelated but widely used service,
+resulting in falsely associating a conversation as Tor communications.
+Third is when a Tor relay node is not widely published, such as the case
+when Tor \emph{bridge} nodes are employed or if a private, unlisted Tor
+network is in use.  Fourth, is when the desire is to go beyond simple
+Tor system usage fingerprinting, in order to determine the actual
+end-to-end communicating nodes and applications in a Tor system
+conversation, effectively breaking the anonymity protections Tor was
+designed to provide.  This last form of attack type is where most of the
+research community has focused its attention, often in the form of
+traffic analysis attack models, some of which we summarize in the next
+section.  We are also interested in more general Tor traffic and system
+usage fingerprinting for the other three scenarios which we explore
+using our own measurement and analysis in \S
+\ref{sec:our_contributions}.
+
+\section{Literature Survey}\label{sec:literature_survey}
+
+\subsection{Early Anonymity Attacks}\label{subsec:early_anonymity_attacks}
+
+Much of the anonmity fingerprinting literature is focused on uncovering
+the \emph{identities} of a pair of communicating parties.  Network
+anonmity systems are typically designed with one or more relays as a
+means of ensuring at least one end of the conversation is not directly
+aware of the identify on the other end in a conversation, providing
+anonymity to the initiating end of the conservation.  A series of one or
+more anonymous relays must ideally be unable and unwilling to disclose
+an intiating end's identity to the destination.  Attacks on this trust
+relationship date back before the existing Tor system was fully
+deployed.  We begin by briefly outlining the first anonmity breaking
+attacks, which provide general lessons for relay-based anonymity systems
+such as Tor, foreshadowing much of the work to come.
+
+Syverson et al., 2001 \cite{syverson_towards_2001} provide the first
+known mathematical analysis of compromised relays in an onion routing
+system.  While compromised relays are beyond the scope of this paper,
+they also provide some commentary on the onion routing network model,
+which eventually spawned the creation of the Tor project.  They eluded
+to possibility of "potentially trackable" changes in link traffic
+patterns.  They assumed that relays would be configured to operate in a
+symmetric manner, minimizing differences that may lead to reducing the
+predicability of traffic patterns.  It turns out in practice, many Tor
+relay operators implement a varied set of policies, from disallowing a
+relay from acting as an \emph{exit} node or limiting which applications
+may be permissible via an exit relay.
+
+Back et al., 2001 \cite{back_traffic_2001} described a series of basic
+traffic analysis attacks against the Freedom network.\footnote{The
+Freedom network is a now defunct anonmity network of relays owned and
+operated by a company then known as Zero Knowledge Systems (ZKS).  ZKS
+built and deployed was could arguably be called an early precursor, very
+similar in concept and operation, to the modern day Tor network.}  One
+of their attacks, anticipating an approach to more advance attacks to
+come, was a simple packet counting correlation attack.  This attack
+requires being able to observe traffic entering and leaving relays.
+Even if relays are shared, this attack attempts to correlate a series of
+packets on ingress to a relay with an equivalent set of packets on
+egress.  If you're able to observe all of the anonmity network relays,
+you could, at least in theory, uncover the two ends of a conversation
+through this packet counting correlation.  Hintz, 2002
+\cite{hintz_fingerprinting_2002} developed a similar early rudimentary
+attack using traffic byte counting.  While packet-based fingerprinting
+attacks are still a potential threat, the byte-counting approach has
+been defeated by Tor's use of fixed size \emph{cells}.  While the Tor
+project has long been aware of packet counting attacks, defenses to them
+have not become an integral part of the Tor system to this day.  Packet
+counting attacks remain an area of ongoing threat research.
+
+In Dingledine et al., 2004 \cite{dingledine_tor:_2004} the authors
+detail the design of the modern Tor system.  From design goals to
+reflections on attacks and defenses, the authors lay out a number of
+assumptions and decisions that has led to basis for the modern-day Tor
+system in widespread use.  In this paper highlights tradeoffs made, such
+as those between protecting traffic from analysis and system complexity.
+The Tor system maintainers have been particularly transparent and
+forthcoming about the potential threats and weaknesses of the overall
+system both in this paper and on their blog.  For example, see
+\cite{dingledine_research_2011}.  This paper notes several possible
+avenues of attack through traffic analysis and relay node manipulation.
+The general theme of this paper is while there are many avenues of
+attack, the system is designed to be reasonably resistant to casual
+attacks through network size, diversity, and adherence to best
+practices.  In other words, a determined attacker is likely able to
+compromise anonmity given sufficient motivation and resources.
+
+
+\subsection{Website Fingerprinting}\label{subsec:website_fingerprinting}
+
+In Shi \& Matsuura, 2009 \cite{shi_fingerprinting_2009} a traffic
+observation attack between an end user is described.  The authors
+classify a stream of related packets into \emph{vectors}.  Each vector
+is a unidirectional packet flow within a time-limited interval.  Some
+characteristics such as packet count, size, and TCP window size can
+inform the classifier.  The vectors must first be preclassified and then
+matched with an ingress or egress flow of Tor system packets as they
+enter the overlay network.  By classifying web traffic to popular sites
+and matching preseeded patterns with test traffic they were able to
+identify traffic endpoints with a high degree of probability when the
+end user was limited to a small set of known sites.  As the variety of
+sites increased success fell off dramtically after only about 100
+distinct sites were evaluated (success rate was approximately 50\%).
+This paper presented a relatively rudimentary experimental approach to
+traffic classification with limited success.  As destination diversity
+and web page customization based on source uniqueness increases the
+attack is likely to fare even worse.
+
+Pachenko et al. 2011 \cite{panchenko_website_2011} introduced novel
+machine learning using support vector machine (SVM) techniques to
+website fingerprinting (WFP) and summarized a state of the art of
+attacks on anonymization networks up to that point.  The authors
+advanced traffic analysis approach, going beyond simple byte and packet
+counting, helped gie rise to a number of successor approaches that use
+machine learning algorithms.  One innovation introduced in this paper
+was the use of \emph{markers}, which seem to act like boundaries of a
+Poisson distribution, though the authors make no mention of this
+intention.  Markers delineate size of packets, directional flow, HTML
+objects and packet counts.  Classification using statistical
+distributions of these marker-based profiles helps Pachenko et al.
+reach fingerprinting rates of slightly more than 54\% on average.
+
+Inevitably traffic fingerprinting and analysis was destined to rise
+above early attempts that focused on relatively simpler packet and byte
+counting mechanisms.  In Wang \& Goldberg, 2013
+\cite{wang_improved_2013}, such advanced techniques were developed.
+Like most traffic fingerprinting attacks, observation of a target's
+ingress and egress traffic to the Tor system is required.  In this case
+the authors find that by reducing this traffic to exclude Tor control
+traffic, specifically \texttt{RELAY\_SENDME} cells.  This seemingly
+minor optimization helps the authors advance the success rate of traffic
+identification from 86-87\% to 91\% of earlier studies, while keeping
+the false positive rate to a fraction of a percent.  While these modest
+attack gains seem neglible, the authors significantly increased the
+sophistication of the attack methods over most previous methods.
+
+Wang \& Goldberg advanced the start of the art in at least three new ways.
+First, the authors leveraged the ability to steer Tor circuit
+construction, choosing the series of relays a path of packets follow.
+This allows them to study and hone the ability to classify traffic, as
+well as detect any differences in exit choice.  Depending on the exit
+relay, traffic may be directed to one of a set of destination instances
+when a web site is globally distributed through load balancing.  While
+many times the destination may be exact replices when duplicated, often
+times their behavior may assume distinct behavior due to presumed
+\emph{locatization} effects.  For instances, a web site may present text
+in a web page in a language associated with the geolocated position of
+the connecting source address.
+
+Second, the authors consider and evaluate traffic pattern
+characteristics on the basis of Tor cells, rather than just the
+underlying encapsulated IP traffic.  This important distinction allows
+the authors to extract entropy based on distinct Tor-specific overlay
+network behavior that is lost when considering TCP/IP packet detail
+alone.  While Tor may reveal underlying TCP/IP network fingerprinting
+through analysis, considering Tor's use of cells and control traffic
+provides a potentially rich avenue for additional insight.  As noted
+above, removing the \texttt{RELAY\_SENDME} cells enhances the ability to
+successfully perform traffic fingerprinting.
+
+Third, the authors further machine learning techniques, using a SVM
+approach, to classify and fingerprint web traffic.  While earlier attack
+research also used SVMs, Wang \& Goldberg refine the the learning
+algorithms to both widen the breadth of similarity between training data
+and reduce seemingly unnecessary tight controls of differences in
+dynamic web characteristics such as advertisements.
+
+Rounding out a look at website fingerprinting attack literature, He et
+al., 2014 \cite{he_novel_2014} go beyond passive inspection to actively
+introduce client latency in order to artificially better analyze these
+more predictable traffic flows.  In other words, by isolating and
+separating what are often multiple website connections to obtain a
+variety of site objects, He et al. leverage this behavior to enhance a
+SVM-based classification engine.  They are able to achive a 15\%
+detection advantage of prior methods using this approach.  The drawback
+of this system is the delicacy required to introduce latency without
+either disrupting communications or being detected when communications
+are sufficiently changed or degraded.  It is also worth noting that this
+approach must be carefully aligned with expected retransmission timers
+and traffic profiles in order to remain effective.
+
+\subsection{Onion Services Identification}
+
+Fingerprint attacks on Tor onion services (formerly known as hidden
+services) and onion service users has become an active area of research
+in recent years thanks in part to the rise and fall of the anonymous,
+online underground market known as \emph{Silk Road}.\footnote{The
+original Silk Road service was shutdown by the FBI in October 2013, and
+the so-called Silk Road 2.0 successor was also shutdown by the FBI in
+cooperation with Europol in 2014.}  As Silk Road may have most famously
+demonstrated, Tor can be used not only to provide anonymity to users of
+common services such as the world wide web, but Tor can also provide
+anonymity to web sites and other server applications.  Consequently,
+researchers have sought out attacks to identify and fingerprint these
+hidden services and their users.
+
+The first known attack analysis on hidden services was done by
+{\O}verlier \& Syverson, 2006 \cite{overlier_locating_2006} and predates
+the extraordinary events of the \emph{Silk Road} market.  Unlike
+most surveyed literature we have examined at this point, this paper is
+unique in that not only does it prevent noteworthy attack research, but
+it led to changes in the Tor system by the time of publication.
+Therefore, we present just a cursory look as this attack or a derivative
+form is no longer practical.  These attacks, as do many of those we look
+at require an attacker control one of the Tor relay nodes.  The first of
+four attacks takes advantage of publication or non-publication of a
+hidden service relay.  Monitoring the hidden service and the relays
+listed in the Tor directory can be used to detect which relay is
+responsible for a hidden service when both the directory entry and the
+hidden service comes unavailable.  Two other attacks undermine the
+ability to infer conservations by examining the timing of communicatings
+flowing through a montiroed relay.  The fourth and final attack is
+against the rendezvous point (RP), an intermediary tor relay node each
+end of the communicaiton builds a Tor circuit to where messages can be
+exchanged anonymously.  An attacker control a relay node and a RP will
+give an attacker knowledge when their relay node is the last node
+between on one of the hidden service endpoints.
+
+Kwon et al., 2015 \cite{kwon_circuit_2015} first realized Tor circuit
+established for hidden services are setup and maintained separately than
+for general purpose Tor relay traffic.  This leads to an obvious
+reduction in traffic analysis required with which to fingerprint hidden
+services.  A relay operator, while presumably unable to decrypt any of
+the Tor network traffic or identify both endpoints of a typical Tor
+circuit, nonetheless has access to the forward and reverse next-hop
+circuit nodes.  This allows an attack to classify circuits, particularly
+circuits used for hidden services.  Coupled with traditional website
+fingerprinting attacks it then becomes possible to fingerprint and
+identify end-to-end hidden services endpoints.  For endpoints that have
+been trained through prior traffic, fingerprint detection rates can be
+over 90\%!  However, this is an optimistic measure for well known or
+popular endpoints, with actual results in real traffic scenarios being
+far else.
+
+Overdorf et al., 2017 \cite{overdorf_how_2017} took web fingerprinting
+attacks not specific to hidden services and adapted them to the "closed
+world" of Tor \texttt{.onion} sites.\footnote{The \texttt{.onion}
+top-level domain is DNS-like name space specific to the Tor system.
+Hidden services use the \texttt{.onion} domain name preceded by a
+distributed hash table (DHT) prefix.}  While the fingerprint methods are
+not a significant evolution over previous attacks, but reinforce what
+the methods in a closed network environment.  What is perhaps most
+perhaps most noteworthy about their results is the overall rate of
+success is still only approximately 80\% at peak against a total of less
+than 500 \texttt{.onion} sites surveyed.  It would seem that such a
+small pool of candidate sites, it might be possible to obtain nearly
+perfect fingerprint identification if not with past methods, with
+tailored site-specific classifiers.  This suggests that Tor does a
+reasonably good job of masking identifying details of system behavior.
+
+Rounding out our literature survey on fingerprint attacks in the hidden
+services domain is work by Panchenko et al.,
+2017\cite{panchenko_analysis_2017}.  Here the authors outline a method to first
+identify Tor hidden services communications, then once identified,
+unveil the specific hidden service using a classifier with the highest
+rate of success compared to other known classifiers in testing.  A key
+contribution of this work is the observation that many websites are
+loaded from multiple Tor circuits, some of which may use entirely
+different Tor network entry nodes and consequently entirely unique
+end-to-end Tor circuit paths.  Panchenko et al. are able to achieve
+approximately twice the rate of fingerprint success compared to previous
+fingerprinting efforts, a significant improvement.
+
+\subsection{Network Services Fingerprinting}
+
+While some studies such as in Feamster \& Dingledine 2004
+\cite{feamster_location_2004} and Murdoch et al., 2007
+\cite{murdoch_sampled_2007} have enumerated network-level threats
+against the Tor relay network, few studies have examined the ability to
+or the threat upon which Tor systems can be passively or actively
+fingerprinted without direct access to observe overlay traffic.  In this
+section we highlight two such network-based fingerprint attacks that are
+not on the data path between of a Tor overlay circuit for any particular
+communicating target.  We will also explore this topic in more detail in
+the next section with our own ideas and contributions.
+
+In Greschbach et al., 2016 \cite{greschbach_effect_2016} DNS queries
+associated with Tor overlay traffic is considered in correlation
+attacks.  That is, off-path networks and resolvers either alone or in
+conjunction with the capability to observe Tor traffic can enhance
+anonymity attacks.  Tor applications will resolve domain names using
+local resolver policy at whatever exit node an application using happens
+to be using.  The DNS resolver policy is operator independent, but is
+often whatever ISP or network default is in use.  Greschbach et al. find
+that 40\% of all exit nodes use Google public DNS.  Regardless of the
+specific DNS resolver in use, these resolvers are by definition a key
+component of each Tor user's communication path.  If the exit relay
+traffic can be observed or even just the exit resolvers, traffic
+analysis may help uncover one or both ends of a Tor conversation.  The
+authors use the DNS signalling to enhance traditional website
+fingerprinting attacks, bringing additional insight to refine end
+points.  Unfortunately the authors did not perform correlation attacks
+on specific Tor usage traffic so we cannot directly compare their
+results to other fingerprinting attacks.  They did find that they are
+able to classify websites based on DNS requests with over 90\% accuracy,
+but it is unclear if this enhances identificaiton of specific sessions
+or not.
+
+\section{Our Contributions}\label{sec:our_contributions}
+
+Many of the system fingerprint attacks are already well known threats,
+but published evaluation of these attacks is relatively sparse.  In this
+section we offer some evaluation of the Tor system through various means
+of observational insight including off and on-path from the Tor overlay
+traffic.  In the accompanying code repository we provide some sample
+code, tools, and data to help illustrate this
+work.\footnote{\url{https://github.com/jtkristoff/cs587}}
+
+\subsection{X.509 Certificate Identification}
+
+Practically all running Tor relay nodes use a version of code that
+includes this from the \texttt{tor/tortls.c} source file:
+
+\begin{footnotesize}
+\begin{verbatim}
+    tor_tls_init();
+    nickname = crypto_random_hostname(8, 20, "www.", ".net");
+  #ifdef DISABLE_V3_LINKPROTO_SERVERSIDE
+    nn2 = crypto_random_hostname(8, 20, "www.", ".net");
+  #else
+    nn2 = crypto_random_hostname(8, 20, "www.", ".com");
+  #endif
+\end{verbatim}
+\end{footnotesize}
+
+This code snippet is responsible for generating the X.509 certificate
+used by a Tor relay node for all the TLS-encrypted and encapsulated
+traffic.  The effect of these commands is that all Tor relay node
+.509 certificates will have a the \emph{CN} field value set of the form
+\texttt{www.[a-z2-7]\{8,20\}.net} and the \emph{ISSUER\_CN} field a value
+of the form \texttt{www.[a-z2-7]8,20\}.com}.  The middle label in these
+generated domain names are base32 encoded and always between eight and
+20 characters inclusive in length.  This pattern of X.509 certificate
+attributes is unlikely to be used by any system not based off the Tor
+relay code.  Obtaining the X.509 certificates of a current Tor
+directory, every reachable Tor node exhibited this certificate attribute
+pattern.  Where this becomes slightly more useful is in detecting Tor
+nodes not listed in the public directory.  The author had recently
+conducted Internet-wide TCP destination port 443 scans and where X.509
+certificates were found, hundreds of X.509 certificates matching these
+attribute properties that were not listed in the public directory were
+found over the course of a few months.  Most of these tested positively
+as unpublished bridge nodes.
+
+\subsection{Network Neighborhood}
+
+The Tor relay directory includes BGP route origination information
+including a source autonomous network name and number.  Evaluting the
+ASNs in use by Tor relays can highlight the propensity for certain types
+of networks or locations that run relays.  It may also suggest those
+that are shy away from supporting Tor node relays, although this is
+likely a large field since in total there are less than 7000 publicly
+listed Tor nodes as of this writing.
+
+Let us consider the following six classes of networks: 1. Broadband, 2.
+Enterprise, 3. Datacenter/Cloud, 4. Content Delivery Network, 5. Tier 1/2 ISP,
+and 6. Internet Exchange Point.  We can then classify the top locations where Tor relay
+nodes are located to see if it any particular network type is more
+popular for hosting Tor relay nodes than another:
+
+\begin{center}
+  \begin{table}[h]
+  \begin{tabular} { l | c | r }
+  \hline
+  count & type & network \\ \hline
+  563 & Datacenter/Cloud & OVH \\ \hline
+  428 & Datacenter/Cloud & ONLINE S.A.S.  \\ \hline
+  339 & Datacenter/Cloud & Hetzner \\ \hline
+  215 & Datacenter/Cloud & Linode \\ \hline
+  182 & Tier 1/2 ISP & Deutsche Telekom \\ \hline
+  109 & UPC & Broadband \\ \hline
+  106 & Datacenter/Cloud & DigitalOcean \\ \hline
+  105 & Datacenter/Cloud & Choopa \\ \hline
+  100 & Broadband & Broadband \\ \hline
+  \hline
+  \end{tabular}
+  \caption{Tor relay host networks}
+  \end{table}
+\end{center}
+
+The Datacenter/Cloud network environment appears to be a popular choice.
+In fact the next two entries would have been sister networks to
+DigitalOcean and most of the remaining top 20 most popular networks
+would continue to be dominated by hosting providers.  We could also
+evaluate the network location of relays along other lines such as IP
+route prefix or geolocation.
+
+\section{Future Work}
+
+In the literature we surveyed, there was no survey of originating Tor
+exit node IP address usage.  It would be helpful for instance to
+enumerate through a Tor directory, setting up a circuit with each
+available exit node and contacting a destination we can observe and
+evaluate what the source IP address used was.  With this data we could
+then correlate if the exit node address selected as part of the circuit
+construction is the same as seen by our observation destination.  We
+would expect this to be the case most of the time, but if not it may
+present some interesting provisioning and addressing arrangements that
+are not reflected in the published directories.  Conducting these
+surveys over the course of time, perhaps with some form of traceroute
+might also confirm the any one exit node has a stable path to our
+observed destination or not.  We would also be interested to see the
+propensity of Tor exit nodes to support IPv6 by default if the
+destination is IPv6-enabled.
+
+When we consider the network neighborhood of Tor relay, bridge, and
+hidden service nodes, we suspect some interesting patterns may arise for
+some partial sets of nodes.  For instance, if we were worried about
+malicious node relays, do certain networks seem more prone to hosting
+them than other networks?  What about networks where we might consider
+the trustworthiness of the operator open to question?  For instance, a
+a government official in country X may be suspicious of any relay
+operated by any organization affiliated with another country's
+government or military.  Uncovering interesting hosting anomalies or
+groupings may highlight nodes to prefer or avoid.
+
+In the public Tor node directory listed each relay includes basic
+operating system information, most of which identify as Linux.  We have
+begun cataloging these systems with a more thorough service scan using
+\emph{nmap} to better evaluate each relay's system profile to see if we
+can draw any conclusions about listening services and operating system
+configuration for typical Tor relay nodes.  We are particularly
+interested in other application services that may be co-resident on
+relay nodes.
+
+Most known Tor relay nodes have or have had one or more assigned
+associated public domain names.  Issuing historical queries for name
+mappings on a recent Tor node directory list we try to observe trends or
+patterns in naming schemes.\footnote{Passive DNS data obtained through a
+research grant by Farsight Security
+\url{https://www.farsightsecurity.com/}}.  We have not concluded our
+analysis using passive DNS data, but we suspect this may be an area that
+will lead to interesting correlations.  Upon a cursory look we find some
+relay nodes thousands of name mappings to an IP address while others
+have none.  This outliers may be artifacts of the particular relay
+provider.  Other times where we find one or a small number of associated
+names there may be an obvious association with the Tor system and other
+times not.  it is not yet clear what pattens may emerge.
+
+\section{Conclusion}
+
+Website fingerprinting attacks have been a popular area of interest
+throughout much of the research literature we have examined.
+In labortory settings these attacks often perform well, but rarely are
+these attacks evaluated at scale.  Some Tor nodes see an enormous amount
+of traffic and the variability of usage throughout the overlay network
+is high.  This poses practical deployment challenges that has not been
+well studied.  It is unclear how well these attacks ultimately fare in
+the wild outside of controlled conditions.
+
+Our initial exploration of system fingerprinting beyond entry and exit
+traffic fingerprinting suggests that the overlay network is both
+immeniently knowable and discoverable, perhaps more easily than some
+would have imagined.  Being able to fingerprint and identify the
+unpublished systems and users of Tor has ramifications for availability
+since censors are often looking for easy ways to thwart its use.
+Overall it seems that there way significantly more avenues of
+fingerprint attacks than defenders can likely keep up with.  The
+availability arms race for anonymity systems seems likely to continue
+for years to come.
+
+\bibliography{torfp}
+
+\end{document}
